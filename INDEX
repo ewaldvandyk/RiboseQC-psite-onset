@@ -1,0 +1,60 @@
+RiboseQC_analysis       Perform a Ribo-seQC analysis
+calc_cutoffs_from_profiles
+                        Calculate offsets from 5'end profiles
+choose_readlengths      Filter read lengths for P-sites position
+                        calculation
+create_html_report      Create the Ribo-seQC analysis report in html
+create_pdfs_from_rds_objects
+                        Generate PDF files from RDS object files
+generate_rdata_list     Generate a list of R data objects
+get_codon_usage_data    Get codon usage data (positional and bulk)
+get_default_rl_selection
+                        Get default choice of read lengths
+get_metagene_data       Get 5'/P-site profile data for metagene
+                        analysis
+get_ps_fromsplicemin    Offset spliced reads on minus strand
+get_ps_fromspliceplus   Offset spliced reads on plus strand
+get_rl_and_cutoffs      Get selected read lengths and cutoffs
+get_top50_all_genes     Get top 50 abundant genes (all genes)
+get_top50_cds_genes     Get top 50 abundant genes (CDS regions for
+                        protein coding genes)
+get_top50_mapping       Get top 50 mapping positions
+load_annotation         Load genomic features and genome sequence
+plot_codon_usage_bulk   Plot bulk codon usage bar plots
+plot_codon_usage_bulk_rmd
+                        Plot bulk codon usage bar plots within the
+                        RMarkdown document
+plot_codon_usage_positional
+                        Plot positional codon usage heatmap
+plot_codon_usage_positional_rmd
+                        Plot positional codon usage heatmaps within the
+                        RMarkdown document
+plot_frame_dist_boxplot
+                        Plot frame coverage of 5'-site profiles
+plot_frame_dist_boxplot_rmd
+                        Plot frame coverage of 5'-site profiles within
+                        the RMarkdown document
+plot_metagene_bar       Plot 5'/P-site profile per read length as
+                        barplot
+plot_metagene_bar_rmd   Plot 5'/P-site profile per read length as
+                        barplot in R Markdown
+plot_metagene_hm        Plot 5'/P-site profiles (for all read lengths)
+                        as heatmap
+plot_metagene_hm_rmd    Plot 5'/P-site profiles as heatmaps within the
+                        RMarkdown document
+plot_read_biotype_dist_1
+                        Plot read location distribution by biotype (and
+                        originating compartment)
+plot_read_biotype_dist_2
+                        Plot read location distribution by originating
+                        compartment (and biotype)
+plot_read_biotype_dist_by_length
+                        Plot read length and location distribution
+                        (distribution per read length)
+plot_read_length_dist   Plot read length distribution
+plot_read_length_dist_by_biotype
+                        Plot read length and location distribution
+                        (distribution per biotype)
+prepare_annotation_files
+                        Prepare comprehensive sets of annotated genomic
+                        features
