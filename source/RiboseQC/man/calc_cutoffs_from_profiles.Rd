@@ -4,19 +4,25 @@
 \alias{calc_cutoffs_from_profiles}
 \title{Calculate offsets from 5'end profiles}
 \usage{
-calc_cutoffs_from_profiles(reads_profile, length_max)
+calc_cutoffs_from_profiles(reads_profile, length_max, method = "edge")
 }
 \arguments{
 \item{reads_profile}{Profile of 5'ends around start and stop codon, as a DataFrame object with
 tx_ids as rows and positions as columns}
 
 \item{length_max}{Maximum cutoff to use}
+
+\item{method}{Signal used to calculate the cutoff: "edge" (default) or "peak", see Details}
 }
 \value{
 a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts 
 displaying the max frame and the average % of frame precision per transcript in \code{frames_res}, 
 all the calculated cutoffs in \code{cutoffs}, data used for the frame analysis in \code{frames}, 
-and profiles around start codons in  \code{profiles_start}.
+and profiles around start codons in  \code{profiles_start}. With \code{method="edge"} also the aggregate rise in coverage
+per position in \code{edge_profile}, the number of 5'ends around start codons in \code{n_reads_start}, and
+\code{cutoff_support}: for each in-frame cutoff the share of the aggregate rise (\code{edge_meta}), the share of 
+transcripts with their highest rise there (\code{edge_tab}) and the mean of the two (\code{support}), 
+used by \code{constrain_cutoffs_readlengths}.
 }
 \description{
 This function calculates cutoffs and frame resolution for Ribo-seq reads,
@@ -24,17 +30,27 @@ This function calculates cutoffs and frame resolution for Ribo-seq reads,
 }
 \details{
 Three methods are used and combined in the final choice: 
- the position of maximum coverage around start codon is calculated for each transcript, and 
+ the position of the signal around start codon is calculated for each transcript, and 
  the most frequent one is stored in the "*_tab" objects. Such frequency values are also
  subjected to k-means clustering (centers=3) and the first value belonging to the highest cluster
  is selected, output as "*km_tab" objects. Analysis of aggregate plots, instead of frequencies, is performed
  again using kmeans (centers=3) using the same analysis above and stored in the "*km_meta" objects,
  and by simply calculating the maximum value in the profile, stored in the "*meta" objects.
  for each method, all reads ("absolute_") or only in-frame positions ("in_frame_") are considered. The final choice takes the most 
- frequent cutoff chosen in all methods applied to in-frame positions.
+ frequent cutoff chosen in all methods applied to in-frame positions. \cr \cr
+ What "the signal" is depends on \code{method}. With \code{method="peak"} (the original behaviour) it is the
+ coverage of 5'ends, so the cutoff is the position with the highest coverage. This assumes that the reads of
+ ribosomes on the start codon outnumber those on the following codons, which holds when ribosomes are made to
+ accumulate on start codons (e.g. cycloheximide or harringtonine pre-treatment) but not in general (e.g. tissue
+ lysed in the presence of cycloheximide). With \code{method="edge"} it is the rise in coverage: at each position, the
+ coverage minus the mean coverage of the two preceding positions in the same frame (3 and 6 nt upstream), 
+ divided by the square root of their sum. 
+ The cutoff is then the position where the 5'ends switch on, which is the 5'end of ribosomes on the start codon
+ regardless of how the coverage continues. With \code{method="edge"} the k-means clustering starts from fixed centers, 
+ so that the same input always gives the same result.
 }
 \seealso{
-\code{\link{RiboseQC_analysis}}
+\code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}
 }
 \author{
 Lorenzo Calviello, \email{calviello.l.bio@gmail.com}

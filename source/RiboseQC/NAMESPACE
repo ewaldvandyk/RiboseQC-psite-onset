@@ -3,6 +3,7 @@
 export(RiboseQC_analysis)
 export(calc_cutoffs_from_profiles)
 export(choose_readlengths)
+export(constrain_cutoffs_readlengths)
 export(create_html_report)
 export(create_pdfs_from_rds_objects)
 export(generate_rdata_list)
