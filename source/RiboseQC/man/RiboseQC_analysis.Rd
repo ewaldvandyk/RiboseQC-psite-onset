@@ -4,13 +4,27 @@
 \alias{RiboseQC_analysis}
 \title{Perform a Ribo-seQC analysis}
 \usage{
-RiboseQC_analysis(annotation_file, bam_files, read_subset = T,
-  readlength_choice_method = "max_coverage", chunk_size = 5000000L,
-  write_tmp_files = T, dest_names = NA, rescue_all_rls = FALSE,
-  fast_mode = T, create_report = T, sample_names = NA,
-  report_file = NA, extended_report = F, pdf_plots = T,
-  stranded = T, normalize_cov = T, tmp_dir = tempdir(),
-  cutoff_method = "edge", max_cutoff_diff = 1)
+RiboseQC_analysis(
+  annotation_file,
+  bam_files,
+  read_subset = T,
+  readlength_choice_method = "max_coverage",
+  chunk_size = 5000000L,
+  write_tmp_files = T,
+  dest_names = NA,
+  rescue_all_rls = FALSE,
+  fast_mode = T,
+  create_report = T,
+  sample_names = NA,
+  report_file = NA,
+  extended_report = F,
+  pdf_plots = T,
+  stranded = T,
+  normalize_cov = T,
+  tmp_dir = tempdir(),
+  cutoff_method = "onset",
+  max_cutoff_diff = 1
+)
 }
 \arguments{
 \item{annotation_file}{Full path to the annotation file (*Rannot). Or, a vector with paths to one annotation file per bam file.}
@@ -47,12 +61,13 @@ RiboseQC_analysis(annotation_file, bam_files, read_subset = T,
 
 \item{tmp_dir}{folder for the intermediate files of the html report, passed on to \code{create_html_report}. Defaults to the temporary folder of the R session.}
 
-\item{cutoff_method}{Signal used to calculate the P-sites cutoffs (see \code{calc_cutoffs_from_profiles}): "edge" (default), the position where the 5'ends 
-switch on before the start codon, or "peak", the position with the most 5'ends (the original behaviour; assumes that ribosomes accumulate on start codons).}
+\item{cutoff_method}{Signal used to calculate the P-sites cutoffs (see \code{calc_cutoffs_from_profiles}): "onset" (default), the position where 
+the 5'ends of the aggregate profile switch on before the start codon; "edge", the position with the largest rise in 5'ends; or "peak", 
+the position with the most 5'ends (the original behaviour; assumes that ribosomes accumulate on start codons).}
 
 \item{max_cutoff_diff}{Maximum difference in cutoff (nt) between two read lengths, per nt of difference in length; used to choose the cutoffs 
 of all read lengths together (see \code{constrain_cutoffs_readlengths}). Defaults to 1. Use \code{NA} to calculate the cutoff of each read length 
-on its own. Only used with \code{cutoff_method="edge"}.}
+on its own. Not used with \code{cutoff_method="peak"}.}
 }
 \value{
 the function saves a "results_RiboseQC_all" R file appended to the bam_files path including the complete list of outputs described here.

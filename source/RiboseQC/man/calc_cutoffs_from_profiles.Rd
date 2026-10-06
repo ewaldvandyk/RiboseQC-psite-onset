@@ -4,7 +4,14 @@
 \alias{calc_cutoffs_from_profiles}
 \title{Calculate offsets from 5'end profiles}
 \usage{
-calc_cutoffs_from_profiles(reads_profile, length_max, method = "edge")
+calc_cutoffs_from_profiles(
+  reads_profile,
+  length_max,
+  method = "onset",
+  onset_ratio = 3,
+  onset_z = 4,
+  onset_persist = 1.5
+)
 }
 \arguments{
 \item{reads_profile}{Profile of 5'ends around start and stop codon, as a DataFrame object with
@@ -12,17 +19,23 @@ tx_ids as rows and positions as columns}
 
 \item{length_max}{Maximum cutoff to use}
 
-\item{method}{Signal used to calculate the cutoff: "edge" (default) or "peak", see Details}
+\item{method}{Signal used to calculate the cutoff: "onset" (default), "edge" or "peak", see Details}
+
+\item{onset_ratio, onset_z, onset_persist}{Thresholds of the onset tests, passed to \code{onset_from_profile}
+as \code{ratio}, \code{z} and \code{persist}. Only used with \code{method="onset"}}
 }
 \value{
-a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts 
-displaying the max frame and the average % of frame precision per transcript in \code{frames_res}, 
-all the calculated cutoffs in \code{cutoffs}, data used for the frame analysis in \code{frames}, 
-and profiles around start codons in  \code{profiles_start}. With \code{method="edge"} also the aggregate rise in coverage
+a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts
+displaying the max frame and the average % of frame precision per transcript in \code{frames_res},
+all the calculated cutoffs in \code{cutoffs}, data used for the frame analysis in \code{frames},
+and profiles around start codons in  \code{profiles_start}. With \code{method="edge"} or \code{"onset"} also the aggregate rise in coverage
 per position in \code{edge_profile}, the number of 5'ends around start codons in \code{n_reads_start}, and
-\code{cutoff_support}: for each in-frame cutoff the share of the aggregate rise (\code{edge_meta}), the share of 
-transcripts with their highest rise there (\code{edge_tab}) and the mean of the two (\code{support}), 
-used by \code{constrain_cutoffs_readlengths}.
+\code{cutoff_support}: for each in-frame cutoff the share of the aggregate rise (\code{edge_meta}), the share of
+transcripts with their highest rise there (\code{edge_tab}) and the \code{support} used by \code{constrain_cutoffs_readlengths}
+(with \code{method="edge"} the mean of the two; with \code{method="onset"} 1 at the onset and 0 elsewhere, or \code{edge_meta}
+when no onset was found). With \code{method="onset"} also \code{onset_tests} (the tests per candidate position, see
+\code{onset_from_profile}), \code{onset_reads} (the 5'ends at the onset, 0 when none was found) and \code{cutoff_source}
+("onset", "edge_meta" or "vote"); \code{cutoffs} then has a ninth element, \code{onset}.
 }
 \description{
 This function calculates cutoffs and frame resolution for Ribo-seq reads,
@@ -43,14 +56,22 @@ Three methods are used and combined in the final choice:
  ribosomes on the start codon outnumber those on the following codons, which holds when ribosomes are made to
  accumulate on start codons (e.g. cycloheximide or harringtonine pre-treatment) but not in general (e.g. tissue
  lysed in the presence of cycloheximide). With \code{method="edge"} it is the rise in coverage: at each position, the
- coverage minus the mean coverage of the two preceding positions in the same frame (3 and 6 nt upstream), 
- divided by the square root of their sum. 
- The cutoff is then the position where the 5'ends switch on, which is the 5'end of ribosomes on the start codon
- regardless of how the coverage continues. With \code{method="edge"} the k-means clustering starts from fixed centers, 
- so that the same input always gives the same result.
+ coverage minus the mean coverage of the two preceding positions in the same frame (3 and 6 nt upstream),
+ divided by the square root of their sum (see \code{edge_from_profiles}), and the largest rise wins.
+ With \code{method="edge"} the k-means clustering starts from fixed centers, so that the same input always gives the same result. \cr \cr
+ With \code{method="onset"} (the default) the vote above is still calculated and reported (with the signal of
+ \code{method="edge"}), but the final cutoff is the position where the 5'ends of the aggregate profile (the sum over
+ transcripts) switch on: the first in-frame position that is clearly above the coverage upstream of it and
+ whose coverage persists on the next codons (see \code{onset_from_profile}). This is the 5'end of the ribosomes
+ on the start codon regardless of how the coverage continues, also when it increases further a few codons later,
+ where the largest rise can be. The per-transcript votes do not take part in the decision: in transcripts with few
+ reads they point at wherever those reads happen to be. With \code{method="onset"} the frame of the possible cutoffs
+ is also that of the aggregate profile (the frame with most 5'ends over the CDS), not the most frequent frame among
+ transcripts. When no position passes the onset tests, the cutoff is the largest rise of the aggregate profile
+ (\code{in_frame_meta}), or the vote when that is not available; \code{cutoff_source} says which.
 }
 \seealso{
-\code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}
+\code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}, \code{\link{onset_from_profile}}
 }
 \author{
 Lorenzo Calviello, \email{calviello.l.bio@gmail.com}

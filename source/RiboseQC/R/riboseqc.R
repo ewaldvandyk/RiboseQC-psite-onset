@@ -2291,6 +2291,76 @@ edge_from_profiles<-function(profiles,positions){
 }
 
 
+#' Position where the 5'ends switch on
+#'
+#' Finds the onset of 5'end coverage around the start codon in an aggregate profile: the first (most upstream)
+#' in-frame position whose coverage is clearly above the coverage upstream of it, and whose coverage persists
+#' downstream of it.
+#' @details Candidate positions are tested one by one, from the most upstream on. For a candidate, the background
+#' is the median coverage of all positions upstream of it in the profile, in any frame (the 5'ends in the
+#' 5'UTR have no frame structure), with a minimum of 1. A candidate with fewer than \code{min_reference}
+#' positions upstream of it cannot be the onset. The candidate passes when its coverage is at least \code{ratio}
+#' times the background, exceeds the background by at least \code{z} times the square root of the background
+#' (the counting noise of the background), and the next two in-frame positions, as far as they are in the profile,
+#' are at least \code{persist} times the background. The first candidate that passes is the onset; the candidates
+#' downstream of it are not considered. \cr \cr
+#' The persistence test is what separates an onset from an isolated population of 5'ends upstream of it:
+#' ribosomes on the start codon are followed by ribosomes on the next codons. It is kept loose on purpose: if the
+#' real onset failed it, the next position that passes would be taken, a few codons too far. As a guard, when a
+#' position upstream of the onset is above the background (first two tests) with at least \code{shadow} times the
+#' coverage of the onset but failed the persistence test, the onset is not trusted and NA is returned
+#' (\code{shadowed} in \code{tests}). \cr \cr
+#' This differs from \code{edge_from_profiles}, which scores the rise at every position and lets the largest
+#' rise win: the largest rise is not the onset when the coverage switches on at a low level and increases further
+#' a few codons later.
+#' @param profile Named numeric vector: 5'end coverage per position, with the positions relative to the first
+#' nucleotide of the start codon as names (e.g. "-25" to "6")
+#' @param positions Candidate positions (numeric), e.g. the in-frame positions from -24 to 0
+#' @param ratio Minimum coverage at the onset, relative to the background. Defaults to 3
+#' @param z Minimum excess of the coverage at the onset over the background, in units of the square root of
+#' the background. Defaults to 4
+#' @param persist Minimum coverage at the next two in-frame positions, relative to the background. Defaults to 1.5
+#' @param min_reference Minimum number of positions upstream of a candidate, for it to be tested. Defaults to 3
+#' @param shadow See Details. Defaults to 0.5
+#' @keywords Ribo-seQC
+#' @return a list with \code{onset}, the position (NA when no candidate passes or the first one that passes is
+#' shadowed), and \code{tests}, a data.frame with one row per candidate: its coverage, the background, the
+#' outcome of the three tests, \code{pass} and \code{shadowed}.
+#' @seealso \code{\link{calc_cutoffs_from_profiles}}, \code{\link{edge_from_profiles}}
+#' @export
+
+onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,min_reference=3,shadow=0.5){
+    pos<-as.numeric(names(profile))
+    positions<-sort(positions)
+    get<-function(p){as.numeric(profile[match(p,pos)])}
+    tests<-data.frame(position=positions,coverage=get(positions),background=NA,above_ratio=FALSE,above_noise=FALSE,persists=FALSE,pass=FALSE,shadowed=FALSE)
+    for(i in seq_along(positions)){
+        p<-positions[i]
+        here<-get(p)
+        if(is.na(here)){next}
+        up<-pos[pos<p]
+        if(length(up)<min_reference){next}
+        bg<-max(1,median(get(up)))
+        nxt<-get(c(p+3,p+6))
+        nxt<-nxt[!is.na(nxt)]
+        tests$background[i]<-bg
+        tests$above_ratio[i]<-here>=ratio*bg
+        tests$above_noise[i]<-here>=bg+z*sqrt(bg)
+        tests$persists[i]<-all(nxt>=persist*bg)
+        tests$pass[i]<-tests$above_ratio[i] & tests$above_noise[i] & tests$persists[i]
+        if(tests$pass[i]){
+            #a position above the background upstream of the onset, with a good part of its coverage, that did not persist
+            earlier<-tests[seq_len(i-1),,drop=F]
+            tests$shadowed[i]<-any(earlier$above_ratio & earlier$above_noise & earlier$coverage>=shadow*here)
+            break
+        }
+    }
+    onset<-NA
+    if(any(tests$pass & !tests$shadowed)){onset<-positions[which(tests$pass & !tests$shadowed)[1]]}
+    list(onset=onset,tests=tests)
+}
+
+
 #' Calculate offsets from 5'end profiles
 #'
 #' This function calculates cutoffs and frame resolution for Ribo-seq reads,
@@ -2309,31 +2379,44 @@ edge_from_profiles<-function(profiles,positions){
 #'  ribosomes on the start codon outnumber those on the following codons, which holds when ribosomes are made to
 #'  accumulate on start codons (e.g. cycloheximide or harringtonine pre-treatment) but not in general (e.g. tissue
 #'  lysed in the presence of cycloheximide). With \code{method="edge"} it is the rise in coverage: at each position, the
-#'  coverage minus the mean coverage of the two preceding positions in the same frame (3 and 6 nt upstream), 
-#'  divided by the square root of their sum (see \code{edge_from_profiles}). 
-#'  The cutoff is then the position where the 5'ends switch on, which is the 5'end of ribosomes on the start codon
-#'  regardless of how the coverage continues. With \code{method="edge"} the k-means clustering starts from fixed centers, 
-#'  so that the same input always gives the same result.
+#'  coverage minus the mean coverage of the two preceding positions in the same frame (3 and 6 nt upstream),
+#'  divided by the square root of their sum (see \code{edge_from_profiles}), and the largest rise wins.
+#'  With \code{method="edge"} the k-means clustering starts from fixed centers, so that the same input always gives the same result. \cr \cr
+#'  With \code{method="onset"} (the default) the vote above is still calculated and reported (with the signal of
+#'  \code{method="edge"}), but the final cutoff is the position where the 5'ends of the aggregate profile (the sum over
+#'  transcripts) switch on: the first in-frame position that is clearly above the coverage upstream of it and
+#'  whose coverage persists on the next codons (see \code{onset_from_profile}). This is the 5'end of the ribosomes
+#'  on the start codon regardless of how the coverage continues, also when it increases further a few codons later,
+#'  where the largest rise can be. The per-transcript votes do not take part in the decision: in transcripts with few
+#'  reads they point at wherever those reads happen to be. With \code{method="onset"} the frame of the possible cutoffs
+#'  is also that of the aggregate profile (the frame with most 5'ends over the CDS), not the most frequent frame among
+#'  transcripts. When no position passes the onset tests, the cutoff is the largest rise of the aggregate profile
+#'  (\code{in_frame_meta}), or the vote when that is not available; \code{cutoff_source} says which.
 #' @param reads_profile Profile of 5'ends around start and stop codon, as a DataFrame object with
 #'   tx_ids as rows and positions as columns
 #' @param length_max Maximum cutoff to use
-#' @param method Signal used to calculate the cutoff: "edge" (default) or "peak", see Details
+#' @param method Signal used to calculate the cutoff: "onset" (default), "edge" or "peak", see Details
+#' @param onset_ratio,onset_z,onset_persist Thresholds of the onset tests, passed to \code{onset_from_profile}
+#'   as \code{ratio}, \code{z} and \code{persist}. Only used with \code{method="onset"}
 #' @keywords Ribo-seQC
 #' @author Lorenzo Calviello, \email{calviello.l.bio@@gmail.com}
-#' @return a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts 
-#' displaying the max frame and the average % of frame precision per transcript in \code{frames_res}, 
-#' all the calculated cutoffs in \code{cutoffs}, data used for the frame analysis in \code{frames}, 
-#' and profiles around start codons in  \code{profiles_start}. With \code{method="edge"} also the aggregate rise in coverage
+#' @return a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts
+#' displaying the max frame and the average % of frame precision per transcript in \code{frames_res},
+#' all the calculated cutoffs in \code{cutoffs}, data used for the frame analysis in \code{frames},
+#' and profiles around start codons in  \code{profiles_start}. With \code{method="edge"} or \code{"onset"} also the aggregate rise in coverage
 #' per position in \code{edge_profile}, the number of 5'ends around start codons in \code{n_reads_start}, and
-#' \code{cutoff_support}: for each in-frame cutoff the share of the aggregate rise (\code{edge_meta}), the share of 
-#' transcripts with their highest rise there (\code{edge_tab}) and the mean of the two (\code{support}), 
-#' used by \code{constrain_cutoffs_readlengths}.
-#' @seealso \code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}
+#' \code{cutoff_support}: for each in-frame cutoff the share of the aggregate rise (\code{edge_meta}), the share of
+#' transcripts with their highest rise there (\code{edge_tab}) and the \code{support} used by \code{constrain_cutoffs_readlengths}
+#' (with \code{method="edge"} the mean of the two; with \code{method="onset"} 1 at the onset and 0 elsewhere, or \code{edge_meta}
+#' when no onset was found). With \code{method="onset"} also \code{onset_tests} (the tests per candidate position, see
+#' \code{onset_from_profile}), \code{onset_reads} (the 5'ends at the onset, 0 when none was found) and \code{cutoff_source}
+#' ("onset", "edge_meta" or "vote"); \code{cutoffs} then has a ninth element, \code{onset}.
+#' @seealso \code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}, \code{\link{onset_from_profile}}
 #' @export
 
-calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
-    if(!method%in%c("edge","peak")){
-        stop("method must be one of 'edge' or 'peak'")
+calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",onset_ratio=3,onset_z=4,onset_persist=1.5){
+    if(!method%in%c("onset","edge","peak")){
+        stop("method must be one of 'onset', 'edge' or 'peak'")
     }
     profok<-as.matrix(reads_profile[,grep("CDS",x = colnames(reads_profile))])
     #profok<-do.call(args = reads_profile[c("CDS_1","CDS_2")],what = cbind.data.frame)
@@ -2358,7 +2441,14 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
     frameans<-(frameans/sum(frameans))*100
     names(frameans)<-1:3
     fra2<-as.numeric(names(which.max(frameans)))-1
-    
+
+    if(method=="onset"){
+        #frame of the aggregate profile: the frame with most 5'ends over the CDS, all transcripts together
+        aggcds<-colSums(profok)
+        frsum<-sapply(1:3,function(k){sum(aggcds[seq(k,length(aggcds),by=3)])})
+        fra<-which.max(frsum)-1
+    }
+
     infra<-seq(fra,-24,by=-3)
     #dists<-c(-24:123)
     #profok<-do.call(args = reads_profile[c("5-UTR_2","CDS_1","CDS_2","3-UTR_1")],what = cbind.data.frame)
@@ -2371,7 +2461,10 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
     #positions before the start codon that are contiguous with it (the last 25 nt of the 5'UTR, see RiboseQC_analysis):
     #the positions used as reference for the rise in coverage
     profup<-profok[,colnames(profok)%in%as.character(-25:0),drop=F]
-    
+    #the same, extended into the CDS by two codons: the aggregate profile in which the onset is found,
+    #with the positions after the last candidate (0) on which its coverage must persist
+    profext<-profok[,colnames(profok)%in%as.character(-25:6),drop=F]
+
     profok<-profok[,colnames(profok)%in%as.character(-24:0)]
     profok<-profok[,abs(as.numeric(colnames(profok)))<=length_max]
     sums<-rowSums(profok)
@@ -2379,11 +2472,11 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
     profup<-profup[sums>0,,drop=F]
     #what if no reads?
     if((dim(profok)[1])<5){return(c())}
-    
-    
-    #signal used to find the cutoff: coverage of 5'ends (peak) or rise in coverage (edge), per transcript and aggregated
+
+
+    #signal used to find the cutoff: coverage of 5'ends (peak) or rise in coverage (edge, onset), per transcript and aggregated
     sigtx<-profok
-    if(method=="edge"){
+    if(method!="peak"){
         sigtx<-edge_from_profiles(profup,positions = as.numeric(colnames(profok)))
     }
     kmeans_cutoff<-function(x){
@@ -2392,9 +2485,9 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
         xx<-sort(unique(as.numeric(x)))
         kmeans(as.numeric(x),centers=xx[c(1,ceiling(length(xx)/2),length(xx))])$cluster
     }
-    
+
     metaprof<-colSums(sigtx)
-    if(method=="edge"){
+    if(method!="peak"){
         #rise in the aggregate profile (not the sum of the rises per transcript)
         metaprof<-edge_from_profiles(matrix(colSums(profup),nrow = 1,dimnames = list(NULL,colnames(profup))),positions = as.numeric(colnames(profok)))[1,]
     }
@@ -2411,9 +2504,9 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
         km_meta_fra<-abs(as.numeric(names(metaprof_fra[which(kms==kms[which.max(metaprof_fra)])[1]])))
         
     }
-    #position of the signal in each transcript (with edge: only transcripts in which the coverage rises somewhere)
+    #position of the signal in each transcript (with edge, onset: only transcripts in which the coverage rises somewhere)
     sigtx_ok<-sigtx
-    if(method=="edge"){
+    if(method!="peak"){
         sigtx_ok<-sigtx[apply(sigtx,1,max)>0,,drop=F]
     }
     tbcut<-table(apply(sigtx_ok,1,which.max))
@@ -2454,8 +2547,8 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
     names(frames_res)<-c("max_frame_in_pctORF","mean_pct_max_frame")
     
     results<-list(final_cutoff=final_cutoff,frames_res=frames_res,cutoffs=cutoffs,frames=frames,profiles_start=profok)
-    
-    if(method=="edge"){
+
+    if(method!="peak"){
         #support for each in-frame cutoff, from the aggregate profile and from the transcripts:
         #used to choose cutoffs jointly across read lengths (constrain_cutoffs_readlengths)
         cuts_fra<-sort(abs(as.numeric(names(metaprof_fra))))
@@ -2471,8 +2564,31 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
         results$n_reads_start<-sum(profok)
         results$cutoff_support<-data.frame(cutoff=cuts_fra,edge_meta=edge_meta,edge_tab=edge_tab,support=(edge_meta+edge_tab)/2)
     }
+
+    if(method=="onset"){
+        #the cutoff is where the 5'ends of the aggregate profile switch on; the vote above is kept as a diagnostic
+        aggext<-colSums(profext)
+        ons<-onset_from_profile(aggext,positions = -cuts_fra,ratio = onset_ratio,z = onset_z,persist = onset_persist)
+        results$onset_tests<-ons$tests
+        results$onset_reads<-0
+        results$cutoffs<-c(results$cutoffs,onset=ifelse(is.na(ons$onset),NA,abs(ons$onset)))
+        if(!is.na(ons$onset)){
+            results$final_cutoff<-abs(ons$onset)
+            results$cutoff_source<-"onset"
+            results$onset_reads<-as.numeric(aggext[as.character(ons$onset)])
+            results$cutoff_support$support<-as.numeric(cuts_fra==abs(ons$onset))
+        }else{
+            #no onset: the largest rise of the aggregate profile, in frame; the per-transcript votes are not used
+            results$cutoff_source<-"vote"
+            if(!is.na(cutoff_meta_fra)){
+                results$final_cutoff<-cutoff_meta_fra
+                results$cutoff_source<-"edge_meta"
+            }
+            results$cutoff_support$support<-edge_meta
+        }
+    }
     return(results)
-    
+
 }
 
 
@@ -2491,22 +2607,31 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="edge"){
 #' read lengths with many reads and a clear frame count the most, read lengths without frame preference do not count. \cr \cr
 #' Because the possible cutoffs of one read length are 3 nt apart, a neighbouring read length leaves only one of them possible 
 #' (with \code{max_diff=1}): the support of all read lengths is thus pooled into one decision. \cr \cr
-#' A read length that cannot be part of the best chain (e.g. a sparse read length for which the wrong frame was found) 
-#' is left out of it, and then gets the possible cutoff closest to that of its neighbours in the chain. 
-#' On ties, the larger cutoff is chosen, as in \code{calc_cutoffs_from_profiles}.
+#' A read length that cannot be part of the best chain (e.g. a sparse read length for which the wrong frame was found)
+#' is left out of it, and then gets the possible cutoff closest to that of its neighbours in the chain.
+#' On ties, the larger cutoff is chosen, as in \code{calc_cutoffs_from_profiles}. \cr \cr
+#' Read lengths with fewer than \code{min_vote_reads} 5'ends around start codons do not take part in the choice
+#' (weight 0): they are left out of the chain and get the cutoff of their neighbours. \cr \cr
+#' With \code{method="onset"} in \code{calc_cutoffs_from_profiles}, a read length whose onset carries at least
+#' \code{min_anchor_reads} 5'ends is an anchor: the chain can only pass through its onset, so that the neighbour
+#' rule cannot move a cutoff that is well determined on its own. When two anchors are not compatible with each other,
+#' the chain keeps the one with the higher weight; the other keeps its own cutoff and is marked "conflict".
 #' @keywords Ribo-seQC
-#' @param cutoffs_list list with one element per read length (names), each the output of 
-#' \code{calc_cutoffs_from_profiles} with \code{method="edge"}. An element named "all" is left as it is.
+#' @param cutoffs_list list with one element per read length (names), each the output of
+#' \code{calc_cutoffs_from_profiles} with \code{method="onset"} or \code{"edge"}. An element named "all" is left as it is.
 #' @param max_diff Maximum difference in cutoff (nt) between two read lengths, per nt of difference in length. Defaults to 1
-#' @return \code{cutoffs_list}, where for each read length \code{final_cutoff} is the cutoff from the chain. 
-#' The cutoff chosen for the read length on its own is kept in \code{final_cutoff_independent}; 
-#' \code{cutoff_constraint} is "chain" or "imputed" (left out of the chain, cutoff taken from the neighbours); 
-#' \code{cutoff_chain_margin} is the difference in score between the best chain and the best chain with another 
+#' @param min_vote_reads Minimum number of 5'ends around start codons for a read length to take part in the choice. Defaults to 50
+#' @param min_anchor_reads Minimum number of 5'ends at the onset for a read length to be an anchor. Defaults to 100
+#' @return \code{cutoffs_list}, where for each read length \code{final_cutoff} is the cutoff from the chain.
+#' The cutoff chosen for the read length on its own is kept in \code{final_cutoff_independent};
+#' \code{cutoff_constraint} is "chain", "anchor" (in the chain, as an anchor), "imputed" (left out of the chain, cutoff
+#' taken from the neighbours) or "conflict" (an anchor that is not compatible with the chain; it keeps its own cutoff);
+#' \code{cutoff_chain_margin} is the difference in score between the best chain and the best chain with another
 #' cutoff for the read length with the highest weight, as a fraction of the best score (0: undecided, 1: no alternative).
 #' @seealso \code{\link{calc_cutoffs_from_profiles}}, \code{\link{RiboseQC_analysis}}
 #' @export
 
-constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1){
+constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1,min_vote_reads=50,min_anchor_reads=100){
     rls<-names(cutoffs_list)
     rls<-rls[!rls%in%"all"]
     rls<-rls[unlist(lapply(rls,function(x){!is.null(cutoffs_list[[x]]$cutoff_support)}))]
@@ -2514,18 +2639,30 @@ constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1){
     if(length(rls)==0){return(cutoffs_list)}
     rls<-rls[order(as.numeric(rls))]
     lens<-as.numeric(rls)
-    
+
     #possible cutoffs (largest first, so that ties go to the larger cutoff) and their weighted support
     cuts<-list()
     scores<-list()
     weights<-c()
+    anchor<-c()
     for(i in seq_along(rls)){
         res<-cutoffs_list[[rls[i]]]
         supp<-res$cutoff_support[order(res$cutoff_support$cutoff,decreasing = T),]
         frame_pref<-as.numeric(res$frames_res[2])/100
         weights[i]<-log10(1+res$n_reads_start)*max(0,(frame_pref-1/3)/(2/3))
+        if(res$n_reads_start<min_vote_reads){weights[i]<-0}
         cuts[[i]]<-supp$cutoff
         scores[[i]]<-weights[i]*supp$support
+        #no vote: left out of the chain, cutoff from the neighbours
+        if(weights[i]==0){scores[[i]][]<- -Inf}
+        #anchor: an onset with enough reads; the chain can only pass through it
+        anchor[i]<-FALSE
+        if(!is.null(res$cutoff_source) & !is.null(res$onset_reads)){
+            if(res$cutoff_source=="onset" & res$onset_reads>=min_anchor_reads & weights[i]>0){
+                anchor[i]<-TRUE
+                scores[[i]][cuts[[i]]!=res$final_cutoff]<- -Inf
+            }
+        }
     }
     
     #best chain: for each read length and cutoff, the best score of a chain ending there
@@ -2557,9 +2694,10 @@ constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1){
         }
         #end of the best chain, then back to its start
         ends<-unlist(lapply(best,max))
+        chain<-rep(NA,length(rls))
+        if(max(ends)==-Inf){return(list(chain=chain,score=-Inf))}
         i<-which.max(ends)
         k<-which.max(best[[i]])
-        chain<-rep(NA,length(rls))
         while(i>0){
             chain[i]<-cuts[[i]][k]
             ii<-prev_rl[[i]][k]
@@ -2572,20 +2710,27 @@ constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1){
     res_chain<-best_chain()
     chain<-res_chain$chain
     constraint<-ifelse(is.na(chain),"imputed","chain")
-    
+    constraint[!is.na(chain) & anchor]<-"anchor"
+
     #margin: best chain with another cutoff for the read length with the highest weight
     margin<-NA
     if(res_chain$score>0){
-        anchor<-which(!is.na(chain))[which.max(weights[!is.na(chain)])]
-        alt<-best_chain(forbid_rl = anchor,forbid_cut = chain[anchor])
+        pivot<-which(!is.na(chain))[which.max(weights[!is.na(chain)])]
+        alt<-best_chain(forbid_rl = pivot,forbid_cut = chain[pivot])
         margin<-(res_chain$score-max(alt$score,0))/res_chain$score
     }
-    
+
+    #anchors that are not compatible with the chain keep their own cutoff
+    for(i in which(is.na(chain) & anchor)){
+        chain[i]<-cutoffs_list[[rls[i]]]$final_cutoff
+        constraint[i]<-"conflict"
+    }
+
     #read lengths left out of the chain: possible cutoff closest to the neighbours in the chain
-    if(sum(!is.na(chain))>0){
+    if(sum(constraint%in%c("chain","anchor"))>0){
         for(i in which(is.na(chain))){
-            lower<-which(!is.na(chain) & constraint=="chain" & lens<lens[i])
-            upper<-which(!is.na(chain) & constraint=="chain" & lens>lens[i])
+            lower<-which(!is.na(chain) & constraint%in%c("chain","anchor") & lens<lens[i])
+            upper<-which(!is.na(chain) & constraint%in%c("chain","anchor") & lens>lens[i])
             if(length(lower)>0 & length(upper)>0){
                 lo<-max(lower)
                 up<-min(upper)
@@ -3108,11 +3253,12 @@ prepare_annotation_files<-function(annotation_directory,twobit_file,gtf_file,sci
 #' @param stranded are the analyzed libraries strand-specific? TRUE, FALSE or "inverse". Defaults to \code{TRUE}
 #' @param normalize_cov export normalized (sum to 1 million) bedgraph files for coverage tracks? Defaults to \code{TRUE}
 #' @param tmp_dir folder for the intermediate files of the html report, passed on to \code{create_html_report}. Defaults to the temporary folder of the R session.
-#' @param cutoff_method Signal used to calculate the P-sites cutoffs (see \code{calc_cutoffs_from_profiles}): "edge" (default), the position where the 5'ends 
-#' switch on before the start codon, or "peak", the position with the most 5'ends (the original behaviour; assumes that ribosomes accumulate on start codons).
+#' @param cutoff_method Signal used to calculate the P-sites cutoffs (see \code{calc_cutoffs_from_profiles}): "onset" (default), the position where 
+#' the 5'ends of the aggregate profile switch on before the start codon; "edge", the position with the largest rise in 5'ends; or "peak", 
+#' the position with the most 5'ends (the original behaviour; assumes that ribosomes accumulate on start codons).
 #' @param max_cutoff_diff Maximum difference in cutoff (nt) between two read lengths, per nt of difference in length; used to choose the cutoffs 
 #' of all read lengths together (see \code{constrain_cutoffs_readlengths}). Defaults to 1. Use \code{NA} to calculate the cutoff of each read length 
-#' on its own. Only used with \code{cutoff_method="edge"}.
+#' on its own. Not used with \code{cutoff_method="peak"}.
 #' @return the function saves a "results_RiboseQC_all" R file appended to the bam_files path including the complete list of outputs described here.
 #' In addition, bedgraph files for coverage value and P_sites position is appended to the bam_files path, including also a summary of P_sites selection statistics, 
 #' a smaller "results_RiboseQC" R file used for creating a dynamic html report, and a "for_SaTAnn" R object that can be used in the SaTAnn pipeline.
@@ -3149,7 +3295,7 @@ prepare_annotation_files<-function(annotation_directory,twobit_file,gtf_file,sci
 #' @export
 
 RiboseQC_analysis<-function(annotation_file,bam_files,read_subset=T,readlength_choice_method="max_coverage",
-                            chunk_size=5000000L,write_tmp_files=T,dest_names=NA,rescue_all_rls=FALSE,fast_mode=T,create_report=T,sample_names=NA,report_file=NA,extended_report=F,pdf_plots=T,stranded=T,normalize_cov=T,tmp_dir=tempdir(),cutoff_method="edge",max_cutoff_diff=1){
+                            chunk_size=5000000L,write_tmp_files=T,dest_names=NA,rescue_all_rls=FALSE,fast_mode=T,create_report=T,sample_names=NA,report_file=NA,extended_report=F,pdf_plots=T,stranded=T,normalize_cov=T,tmp_dir=tempdir(),cutoff_method="onset",max_cutoff_diff=1){
     
     if(length(dest_names)==1){
         if(is.na(dest_names)){
@@ -3956,7 +4102,7 @@ RiboseQC_analysis<-function(annotation_file,bam_files,read_subset=T,readlength_c
                 
             }
             #choose the cutoffs of all read lengths together
-            if(cutoff_method=="edge" & !is.na(max_cutoff_diff)){
+            if(cutoff_method%in%c("onset","edge") & !is.na(max_cutoff_diff)){
                 list_res<-constrain_cutoffs_readlengths(list_res,max_diff = max_cutoff_diff)
             }
             list_res
