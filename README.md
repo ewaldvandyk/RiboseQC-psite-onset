@@ -14,10 +14,11 @@ ribosomes do not pile up on start codons.
 | The report is rendered from a private copy of the template; new argument `tmp_dir` | `create_html_report`, `RiboseQC_analysis` | See below. From version 0.99.1. |
 | P-site offsets ("cutoffs") from where the 5'ends switch on instead of where they peak, and chosen for all read lengths together; new arguments `cutoff_method` and `max_cutoff_diff` | `calc_cutoffs_from_profiles`, new `constrain_cutoffs_readlengths`, `RiboseQC_analysis` | See below. From version 0.99.2. **Changes results.** |
 | The offset is the *first* position where the aggregate 5'end profile switches on, not the *largest* rise; the per-transcript votes no longer take part; read lengths with a well-determined offset anchor the joint choice | new `onset_from_profile`, `calc_cutoffs_from_profiles`, `constrain_cutoffs_readlengths` | See below. From version 0.99.3. **Changes results.** |
+| The onset must carry a substantial part of the signal (`onset_rel`) | `onset_from_profile`, `calc_cutoffs_from_profiles` | See below. From version 0.99.4. **Changes results** for read lengths with a small population of 5'ends one codon upstream of the onset. |
 
 The version number differs from the original (0.99.0) so that this copy can be
 told apart from it: 0.99.1 from the third change on, 0.99.2 from the fourth,
-0.99.3 from the fifth.
+0.99.3 from the fifth, 0.99.4 from the sixth.
 
 ## The report step and `tmp_dir`
 
@@ -70,13 +71,19 @@ jumps a few codons later, the largest rise is at the jump, not at the offset.
   by one, from the most upstream on. The background of a position is the median
   coverage of the in-frame positions before it (at least 1). A position is the
   onset when its coverage is at least 3 times the background, exceeds it by at
-  least 4 times the square root of the background (the counting noise), and
-  the next two in-frame positions are at least 2 times the background. The
-  first position that passes is the offset; what the coverage does after it
-  is not looked at. The last test is what separates an onset from an isolated
+  least 4 times the square root of the background (the counting noise), the
+  next two in-frame positions are at least 1.5 times the background, and the
+  position carries at least a fifth of the coverage of those two positions.
+  The first position that passes is the offset; what the coverage does after it
+  is not looked at. The persistence test separates an onset from an isolated
   group of 5'ends further upstream: ribosomes on the start codon are followed by
-  ribosomes on the next codons. The thresholds are the arguments `onset_ratio`,
-  `onset_z` and `onset_persist` of `calc_cutoffs_from_profiles`.
+  ribosomes on the next codons. The last test (0.99.4) separates it from a small
+  population of 5'ends one codon upstream of it: the other tests are relative to
+  the background, and in a deep library with an empty 5'UTR a few percent of
+  the reads pass them (seen in 29-mers of 5 of 80 heart samples, offset 15
+  instead of 12; those bumps carried at most 0.14 of the next codons, real
+  onsets at least 0.54). The thresholds are the arguments `onset_ratio`, `onset_z`,
+  `onset_persist` and `onset_rel` of `calc_cutoffs_from_profiles`.
 - *Only the aggregate profile decides.* The frame of the possible offsets is
   the frame with most 5'ends over the CDS, all transcripts together. The
   readings of the "edge" method (aggregate and per transcript) are still

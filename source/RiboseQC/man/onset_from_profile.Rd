@@ -10,6 +10,7 @@ onset_from_profile(
   ratio = 3,
   z = 4,
   persist = 1.5,
+  rel = 0.2,
   min_reference = 3,
   shadow = 0.5
 )
@@ -27,6 +28,8 @@ the background. Defaults to 4}
 
 \item{persist}{Minimum coverage at the next two in-frame positions, relative to the background. Defaults to 1.5}
 
+\item{rel}{Minimum coverage at the onset, relative to the larger of the next two in-frame positions. Defaults to 0.2}
+
 \item{min_reference}{Minimum number of positions upstream of a candidate, for it to be tested. Defaults to 3}
 
 \item{shadow}{See Details. Defaults to 0.5}
@@ -34,7 +37,7 @@ the background. Defaults to 4}
 \value{
 a list with \code{onset}, the position (NA when no candidate passes or the first one that passes is
 shadowed), and \code{tests}, a data.frame with one row per candidate: its coverage, the background, the
-outcome of the three tests, \code{pass} and \code{shadowed}.
+outcome of the four tests, \code{pass} and \code{shadowed}.
 }
 \description{
 Finds the onset of 5'end coverage around the start codon in an aggregate profile: the first (most upstream)
@@ -48,11 +51,15 @@ is the median coverage of all positions upstream of it in the profile, in any fr
 positions upstream of it cannot be the onset. The candidate passes when its coverage is at least \code{ratio}
 times the background, exceeds the background by at least \code{z} times the square root of the background
 (the counting noise of the background), and the next two in-frame positions, as far as they are in the profile,
-are at least \code{persist} times the background. The first candidate that passes is the onset; the candidates
-downstream of it are not considered. \cr \cr
+are at least \code{persist} times the background, and its coverage is at least \code{rel} times the larger of
+those two (the onset must be a substantial part of the signal). The first candidate that passes is the onset;
+the candidates downstream of it are not considered. \cr \cr
 The persistence test is what separates an onset from an isolated population of 5'ends upstream of it:
 ribosomes on the start codon are followed by ribosomes on the next codons. It is kept loose on purpose: if the
-real onset failed it, the next position that passes would be taken, a few codons too far. As a guard, when a
+real onset failed it, the next position that passes would be taken, a few codons too far. The \code{rel} test
+separates the onset from a small population of 5'ends one codon upstream of it: the three tests above are
+relative to the background, and in a deep library with an empty 5'UTR a few percent of the reads pass them.
+As a guard, when a
 position upstream of the onset is above the background (first two tests) with at least \code{shadow} times the
 coverage of the onset but failed the persistence test, the onset is not trusted and NA is returned
 (\code{shadowed} in \code{tests}). \cr \cr

@@ -1,6 +1,6 @@
 Package: RiboseQC
 Title: Ribo-seQC, a comprehensive Ribo-seq analysis tool
-Version: 0.99.3
+Version: 0.99.4
 Authors@R: c(person("Lorenzo", "Calviello", email = "calviello.l.bio@gmail.com", role = c("aut")),
     person("Dominique", "Sydow", email = "dominique.sydow@posteo.de", role = c("aut")),
     person("Dermott", "Harnett", email = "Dermot.Harnett@mdc-berlin.de", role = c("ctb","cre")),

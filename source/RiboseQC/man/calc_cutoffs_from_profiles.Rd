@@ -10,7 +10,8 @@ calc_cutoffs_from_profiles(
   method = "onset",
   onset_ratio = 3,
   onset_z = 4,
-  onset_persist = 1.5
+  onset_persist = 1.5,
+  onset_rel = 0.2
 )
 }
 \arguments{
@@ -21,8 +22,8 @@ tx_ids as rows and positions as columns}
 
 \item{method}{Signal used to calculate the cutoff: "onset" (default), "edge" or "peak", see Details}
 
-\item{onset_ratio, onset_z, onset_persist}{Thresholds of the onset tests, passed to \code{onset_from_profile}
-as \code{ratio}, \code{z} and \code{persist}. Only used with \code{method="onset"}}
+\item{onset_ratio, onset_z, onset_persist, onset_rel}{Thresholds of the onset tests, passed to \code{onset_from_profile}
+as \code{ratio}, \code{z}, \code{persist} and \code{rel}. Only used with \code{method="onset"}}
 }
 \value{
 a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts

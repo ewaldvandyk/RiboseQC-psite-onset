@@ -2302,11 +2302,15 @@ edge_from_profiles<-function(profiles,positions){
 #' positions upstream of it cannot be the onset. The candidate passes when its coverage is at least \code{ratio}
 #' times the background, exceeds the background by at least \code{z} times the square root of the background
 #' (the counting noise of the background), and the next two in-frame positions, as far as they are in the profile,
-#' are at least \code{persist} times the background. The first candidate that passes is the onset; the candidates
-#' downstream of it are not considered. \cr \cr
+#' are at least \code{persist} times the background, and its coverage is at least \code{rel} times the larger of
+#' those two (the onset must be a substantial part of the signal). The first candidate that passes is the onset;
+#' the candidates downstream of it are not considered. \cr \cr
 #' The persistence test is what separates an onset from an isolated population of 5'ends upstream of it:
 #' ribosomes on the start codon are followed by ribosomes on the next codons. It is kept loose on purpose: if the
-#' real onset failed it, the next position that passes would be taken, a few codons too far. As a guard, when a
+#' real onset failed it, the next position that passes would be taken, a few codons too far. The \code{rel} test
+#' separates the onset from a small population of 5'ends one codon upstream of it: the three tests above are
+#' relative to the background, and in a deep library with an empty 5'UTR a few percent of the reads pass them.
+#' As a guard, when a
 #' position upstream of the onset is above the background (first two tests) with at least \code{shadow} times the
 #' coverage of the onset but failed the persistence test, the onset is not trusted and NA is returned
 #' (\code{shadowed} in \code{tests}). \cr \cr
@@ -2320,20 +2324,21 @@ edge_from_profiles<-function(profiles,positions){
 #' @param z Minimum excess of the coverage at the onset over the background, in units of the square root of
 #' the background. Defaults to 4
 #' @param persist Minimum coverage at the next two in-frame positions, relative to the background. Defaults to 1.5
+#' @param rel Minimum coverage at the onset, relative to the larger of the next two in-frame positions. Defaults to 0.2
 #' @param min_reference Minimum number of positions upstream of a candidate, for it to be tested. Defaults to 3
 #' @param shadow See Details. Defaults to 0.5
 #' @keywords Ribo-seQC
 #' @return a list with \code{onset}, the position (NA when no candidate passes or the first one that passes is
 #' shadowed), and \code{tests}, a data.frame with one row per candidate: its coverage, the background, the
-#' outcome of the three tests, \code{pass} and \code{shadowed}.
+#' outcome of the four tests, \code{pass} and \code{shadowed}.
 #' @seealso \code{\link{calc_cutoffs_from_profiles}}, \code{\link{edge_from_profiles}}
 #' @export
 
-onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,min_reference=3,shadow=0.5){
+onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,rel=0.2,min_reference=3,shadow=0.5){
     pos<-as.numeric(names(profile))
     positions<-sort(positions)
     get<-function(p){as.numeric(profile[match(p,pos)])}
-    tests<-data.frame(position=positions,coverage=get(positions),background=NA,above_ratio=FALSE,above_noise=FALSE,persists=FALSE,pass=FALSE,shadowed=FALSE)
+    tests<-data.frame(position=positions,coverage=get(positions),background=NA,above_ratio=FALSE,above_noise=FALSE,persists=FALSE,substantial=FALSE,pass=FALSE,shadowed=FALSE)
     for(i in seq_along(positions)){
         p<-positions[i]
         here<-get(p)
@@ -2347,7 +2352,8 @@ onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,min_refer
         tests$above_ratio[i]<-here>=ratio*bg
         tests$above_noise[i]<-here>=bg+z*sqrt(bg)
         tests$persists[i]<-all(nxt>=persist*bg)
-        tests$pass[i]<-tests$above_ratio[i] & tests$above_noise[i] & tests$persists[i]
+        tests$substantial[i]<-ifelse(length(nxt)>0,here>=rel*max(nxt),TRUE)
+        tests$pass[i]<-tests$above_ratio[i] & tests$above_noise[i] & tests$persists[i] & tests$substantial[i]
         if(tests$pass[i]){
             #a position above the background upstream of the onset, with a good part of its coverage, that did not persist
             earlier<-tests[seq_len(i-1),,drop=F]
@@ -2396,8 +2402,8 @@ onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,min_refer
 #'   tx_ids as rows and positions as columns
 #' @param length_max Maximum cutoff to use
 #' @param method Signal used to calculate the cutoff: "onset" (default), "edge" or "peak", see Details
-#' @param onset_ratio,onset_z,onset_persist Thresholds of the onset tests, passed to \code{onset_from_profile}
-#'   as \code{ratio}, \code{z} and \code{persist}. Only used with \code{method="onset"}
+#' @param onset_ratio,onset_z,onset_persist,onset_rel Thresholds of the onset tests, passed to \code{onset_from_profile}
+#'   as \code{ratio}, \code{z}, \code{persist} and \code{rel}. Only used with \code{method="onset"}
 #' @keywords Ribo-seQC
 #' @author Lorenzo Calviello, \email{calviello.l.bio@@gmail.com}
 #' @return a list with a \code{final_cutoff} object, the frame analysis containing the % of transcripts
@@ -2414,7 +2420,7 @@ onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,min_refer
 #' @seealso \code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}, \code{\link{onset_from_profile}}
 #' @export
 
-calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",onset_ratio=3,onset_z=4,onset_persist=1.5){
+calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",onset_ratio=3,onset_z=4,onset_persist=1.5,onset_rel=0.2){
     if(!method%in%c("onset","edge","peak")){
         stop("method must be one of 'onset', 'edge' or 'peak'")
     }
@@ -2568,7 +2574,7 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",ons
     if(method=="onset"){
         #the cutoff is where the 5'ends of the aggregate profile switch on; the vote above is kept as a diagnostic
         aggext<-colSums(profext)
-        ons<-onset_from_profile(aggext,positions = -cuts_fra,ratio = onset_ratio,z = onset_z,persist = onset_persist)
+        ons<-onset_from_profile(aggext,positions = -cuts_fra,ratio = onset_ratio,z = onset_z,persist = onset_persist,rel = onset_rel)
         results$onset_tests<-ons$tests
         results$onset_reads<-0
         results$cutoffs<-c(results$cutoffs,onset=ifelse(is.na(ons$onset),NA,abs(ons$onset)))
