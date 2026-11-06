@@ -15,10 +15,11 @@ ribosomes do not pile up on start codons.
 | P-site offsets ("cutoffs") from where the 5'ends switch on instead of where they peak, and chosen for all read lengths together; new arguments `cutoff_method` and `max_cutoff_diff` | `calc_cutoffs_from_profiles`, new `constrain_cutoffs_readlengths`, `RiboseQC_analysis` | See below. From version 0.99.2. **Changes results.** |
 | The offset is the *first* position where the aggregate 5'end profile switches on, not the *largest* rise; the per-transcript votes no longer take part; read lengths with a well-determined offset anchor the joint choice | new `onset_from_profile`, `calc_cutoffs_from_profiles`, `constrain_cutoffs_readlengths` | See below. From version 0.99.3. **Changes results.** |
 | The onset must carry a substantial part of the signal (`onset_rel`) | `onset_from_profile`, `calc_cutoffs_from_profiles` | See below. From version 0.99.4. **Changes results** for read lengths with a small population of 5'ends one codon upstream of the onset. |
+| A read length flagged as a conflict is tested again in the range its neighbours allow | `constrain_cutoffs_readlengths`, `calc_cutoffs_from_profiles` | See below. From version 0.99.5. **Changes results** for flagged read lengths that have an onset in that range. |
 
 The version number differs from the original (0.99.0) so that this copy can be
 told apart from it: 0.99.1 from the third change on, 0.99.2 from the fourth,
-0.99.3 from the fifth, 0.99.4 from the sixth.
+0.99.3 from the fifth, 0.99.4 from the sixth, 0.99.5 from the seventh.
 
 ## The report step and `tmp_dir`
 
@@ -99,8 +100,19 @@ jumps a few codons later, the largest rise is at the jump, not at the offset.
   (50) 5'ends do not vote and get the offset of their neighbours. A read length
   whose onset carries at least `min_anchor_reads` (100) 5'ends is an anchor:
   the chain can only pass through its onset. Two anchors that are not
-  compatible with each other are reported (`cutoff_constraint = "conflict"`),
-  the lighter one keeps its own offset.
+  compatible with each other cannot both be in the chain; the lighter one is
+  flagged.
+- *A flagged read length is tested again, locally* (0.99.5). Its own onset is
+  the first position that passed the tests, and that can be a small population
+  of 5'ends far upstream of the real onset (`hs_brain_001_B`, 28 nt: offset 21
+  on 812 5'ends, with 33,501 at the position of offset 12, between neighbours
+  at 11 and 12). The same onset tests are therefore repeated on the possible
+  offsets in the expected range only: those that the nearest read lengths in
+  the chain, on either side, allow. An onset found there becomes the offset
+  (`cutoff_constraint = "local_onset"`, tests in `onset_tests_local`). With no
+  onset there, or no possible offset in the range, nothing changes: the read
+  length keeps its own offset and stays reported as `"conflict"`. Everything
+  else is as before; read lengths that are not flagged are not touched.
 
 `cutoff_method = "edge"` gives the behaviour of 0.99.2, `cutoff_method =
 "peak"` that of the original. `max_cutoff_diff = NA` decides each read length
@@ -110,8 +122,9 @@ unless they are anchors; `cutoff_chain_margin` in the results is then low.
 
 The results keep the fields of the original (`final_cutoff`, `cutoffs`,
 `frames`, `profiles_start`) and add, per read length, `final_cutoff_independent`,
-`cutoff_source`, `onset_tests`, `onset_reads`, `cutoff_support`,
-`cutoff_constraint` and `cutoff_chain_margin`.
+`cutoff_source`, `onset_tests`, `onset_profile`, `onset_thresholds`,
+`onset_reads`, `cutoff_support`, `cutoff_constraint`, `cutoff_chain_margin`
+and, for a flagged read length that was tested again, `onset_tests_local`.
 
 **Checking existing results.** `recalculate_cutoffs.R` compares the offsets
 stored in finished `*_results_RiboseQC` files with what the onset method gives,

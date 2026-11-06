@@ -17,7 +17,7 @@
 # P-sites in the stored run), cutoff_stored, cutoff_edge (0.99.2 method, read length on its own), cutoff_onset
 # (onset method, read length on its own), onset_reads (5'ends at the onset, 0 if none found), cutoff_source
 # (onset / edge_meta / vote), cutoff_joint (onset method, read lengths together), constraint (chain / anchor /
-# imputed / conflict), chain_margin, changed (stored != joint), note.
+# imputed / local_onset / conflict), chain_margin, changed (stored != joint), note.
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) == 0) stop("give one or more *_results_RiboseQC files")

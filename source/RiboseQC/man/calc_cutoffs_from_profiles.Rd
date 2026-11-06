@@ -35,7 +35,9 @@ per position in \code{edge_profile}, the number of 5'ends around start codons in
 transcripts with their highest rise there (\code{edge_tab}) and the \code{support} used by \code{constrain_cutoffs_readlengths}
 (with \code{method="edge"} the mean of the two; with \code{method="onset"} 1 at the onset and 0 elsewhere, or \code{edge_meta}
 when no onset was found). With \code{method="onset"} also \code{onset_tests} (the tests per candidate position, see
-\code{onset_from_profile}), \code{onset_reads} (the 5'ends at the onset, 0 when none was found) and \code{cutoff_source}
+\code{onset_from_profile}), \code{onset_profile} and \code{onset_thresholds} (the aggregate profile and the thresholds
+of those tests, with which \code{constrain_cutoffs_readlengths} can repeat them in a narrower range),
+\code{onset_reads} (the 5'ends at the onset, 0 when none was found) and \code{cutoff_source}
 ("onset", "edge_meta" or "vote"); \code{cutoffs} then has a ninth element, \code{onset}.
 }
 \description{

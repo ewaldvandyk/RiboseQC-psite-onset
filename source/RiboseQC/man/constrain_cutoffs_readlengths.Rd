@@ -25,7 +25,9 @@ constrain_cutoffs_readlengths(
 \code{cutoffs_list}, where for each read length \code{final_cutoff} is the cutoff from the chain.
 The cutoff chosen for the read length on its own is kept in \code{final_cutoff_independent};
 \code{cutoff_constraint} is "chain", "anchor" (in the chain, as an anchor), "imputed" (left out of the chain, cutoff
-taken from the neighbours) or "conflict" (an anchor that is not compatible with the chain; it keeps its own cutoff);
+taken from the neighbours), "local_onset" (an anchor that is not compatible with the chain, with an onset among the
+cutoffs its neighbours allow; the tests are in \code{onset_tests_local}) or "conflict" (an anchor that is not
+compatible with the chain and has no onset there; it keeps its own cutoff);
 \code{cutoff_chain_margin} is the difference in score between the best chain and the best chain with another
 cutoff for the read length with the highest weight, as a fraction of the best score (0: undecided, 1: no alternative).
 }
@@ -53,7 +55,12 @@ Read lengths with fewer than \code{min_vote_reads} 5'ends around start codons do
 With \code{method="onset"} in \code{calc_cutoffs_from_profiles}, a read length whose onset carries at least
 \code{min_anchor_reads} 5'ends is an anchor: the chain can only pass through its onset, so that the neighbour
 rule cannot move a cutoff that is well determined on its own. When two anchors are not compatible with each other,
-the chain keeps the one with the higher weight; the other keeps its own cutoff and is marked "conflict".
+the chain keeps the one with the higher weight. For the other one the onset is looked for again, with the same
+tests (\code{onset_from_profile}), but only among its possible cutoffs in the expected range: those that the nearest
+read lengths in the chain, on either side, allow (\code{max_diff} nt per nt of difference in length). An onset
+outside that range, which passed the tests first, then no longer hides the one inside it. If an onset is found
+there it becomes the cutoff ("local_onset"); if not, or if no possible cutoff lies in the range, the read length
+keeps its own cutoff and is marked "conflict".
 }
 \seealso{
 \code{\link{calc_cutoffs_from_profiles}}, \code{\link{RiboseQC_analysis}}

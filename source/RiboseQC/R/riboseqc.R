@@ -2415,7 +2415,9 @@ onset_from_profile<-function(profile,positions,ratio=3,z=4,persist=1.5,rel=0.2,m
 #' transcripts with their highest rise there (\code{edge_tab}) and the \code{support} used by \code{constrain_cutoffs_readlengths}
 #' (with \code{method="edge"} the mean of the two; with \code{method="onset"} 1 at the onset and 0 elsewhere, or \code{edge_meta}
 #' when no onset was found). With \code{method="onset"} also \code{onset_tests} (the tests per candidate position, see
-#' \code{onset_from_profile}), \code{onset_reads} (the 5'ends at the onset, 0 when none was found) and \code{cutoff_source}
+#' \code{onset_from_profile}), \code{onset_profile} and \code{onset_thresholds} (the aggregate profile and the thresholds
+#' of those tests, with which \code{constrain_cutoffs_readlengths} can repeat them in a narrower range),
+#' \code{onset_reads} (the 5'ends at the onset, 0 when none was found) and \code{cutoff_source}
 #' ("onset", "edge_meta" or "vote"); \code{cutoffs} then has a ninth element, \code{onset}.
 #' @seealso \code{\link{RiboseQC_analysis}}, \code{\link{constrain_cutoffs_readlengths}}, \code{\link{onset_from_profile}}
 #' @export
@@ -2576,6 +2578,9 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",ons
         aggext<-colSums(profext)
         ons<-onset_from_profile(aggext,positions = -cuts_fra,ratio = onset_ratio,z = onset_z,persist = onset_persist,rel = onset_rel)
         results$onset_tests<-ons$tests
+        #kept for constrain_cutoffs_readlengths, which looks for the onset again in a narrower range when needed
+        results$onset_profile<-aggext
+        results$onset_thresholds<-c(ratio=onset_ratio,z=onset_z,persist=onset_persist,rel=onset_rel)
         results$onset_reads<-0
         results$cutoffs<-c(results$cutoffs,onset=ifelse(is.na(ons$onset),NA,abs(ons$onset)))
         if(!is.na(ons$onset)){
@@ -2621,7 +2626,12 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",ons
 #' With \code{method="onset"} in \code{calc_cutoffs_from_profiles}, a read length whose onset carries at least
 #' \code{min_anchor_reads} 5'ends is an anchor: the chain can only pass through its onset, so that the neighbour
 #' rule cannot move a cutoff that is well determined on its own. When two anchors are not compatible with each other,
-#' the chain keeps the one with the higher weight; the other keeps its own cutoff and is marked "conflict".
+#' the chain keeps the one with the higher weight. For the other one the onset is looked for again, with the same
+#' tests (\code{onset_from_profile}), but only among its possible cutoffs in the expected range: those that the nearest
+#' read lengths in the chain, on either side, allow (\code{max_diff} nt per nt of difference in length). An onset
+#' outside that range, which passed the tests first, then no longer hides the one inside it. If an onset is found
+#' there it becomes the cutoff ("local_onset"); if not, or if no possible cutoff lies in the range, the read length
+#' keeps its own cutoff and is marked "conflict".
 #' @keywords Ribo-seQC
 #' @param cutoffs_list list with one element per read length (names), each the output of
 #' \code{calc_cutoffs_from_profiles} with \code{method="onset"} or \code{"edge"}. An element named "all" is left as it is.
@@ -2631,7 +2641,9 @@ calc_cutoffs_from_profiles<-function(reads_profile,length_max,method="onset",ons
 #' @return \code{cutoffs_list}, where for each read length \code{final_cutoff} is the cutoff from the chain.
 #' The cutoff chosen for the read length on its own is kept in \code{final_cutoff_independent};
 #' \code{cutoff_constraint} is "chain", "anchor" (in the chain, as an anchor), "imputed" (left out of the chain, cutoff
-#' taken from the neighbours) or "conflict" (an anchor that is not compatible with the chain; it keeps its own cutoff);
+#' taken from the neighbours), "local_onset" (an anchor that is not compatible with the chain, with an onset among the
+#' cutoffs its neighbours allow; the tests are in \code{onset_tests_local}) or "conflict" (an anchor that is not
+#' compatible with the chain and has no onset there; it keeps its own cutoff);
 #' \code{cutoff_chain_margin} is the difference in score between the best chain and the best chain with another
 #' cutoff for the read length with the highest weight, as a fraction of the best score (0: undecided, 1: no alternative).
 #' @seealso \code{\link{calc_cutoffs_from_profiles}}, \code{\link{RiboseQC_analysis}}
@@ -2726,10 +2738,35 @@ constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1,min_vote_reads=5
         margin<-(res_chain$score-max(alt$score,0))/res_chain$score
     }
 
-    #anchors that are not compatible with the chain keep their own cutoff
-    for(i in which(is.na(chain) & anchor)){
-        chain[i]<-cutoffs_list[[rls[i]]]$final_cutoff
+    #anchors that are not compatible with the chain: the onset is looked for again, with the same tests, among
+    #the possible cutoffs that the nearest read lengths in the chain allow; without an onset there, they keep their own cutoff
+    in_chain<-!is.na(chain)
+    local_tests<-list()
+    for(i in which(!in_chain & anchor)){
+        res<-cutoffs_list[[rls[i]]]
+        chain[i]<-res$final_cutoff
         constraint[i]<-"conflict"
+        if(is.null(res$onset_profile) | is.null(res$onset_thresholds)){next}
+        lower<-which(in_chain & lens<lens[i])
+        upper<-which(in_chain & lens>lens[i])
+        neighbours<-c()
+        if(length(lower)>0){neighbours<-c(neighbours,max(lower))}
+        if(length(upper)>0){neighbours<-c(neighbours,min(upper))}
+        if(length(neighbours)==0){next}
+        expected<-c(-Inf,Inf)
+        for(j in neighbours){
+            reach<-max_diff*abs(lens[i]-lens[j])
+            expected<-c(max(expected[1],chain[j]-reach),min(expected[2],chain[j]+reach))
+        }
+        local<-cuts[[i]][cuts[[i]]>=expected[1] & cuts[[i]]<=expected[2]]
+        if(length(local)==0){next}
+        th<-res$onset_thresholds
+        ons<-onset_from_profile(res$onset_profile,positions = -local,ratio = th[["ratio"]],z = th[["z"]],persist = th[["persist"]],rel = th[["rel"]])
+        local_tests[[rls[i]]]<-ons$tests
+        if(!is.na(ons$onset)){
+            chain[i]<-abs(ons$onset)
+            constraint[i]<-"local_onset"
+        }
     }
 
     #read lengths left out of the chain: possible cutoff closest to the neighbours in the chain
@@ -2756,6 +2793,7 @@ constrain_cutoffs_readlengths<-function(cutoffs_list,max_diff=1,min_vote_reads=5
             res$cutoff_constraint<-constraint[i]
             res$cutoff_chain_margin<-margin
         }
+        if(!is.null(local_tests[[rls[i]]])){res$onset_tests_local<-local_tests[[rls[i]]]}
         cutoffs_list[[rls[i]]]<-res
     }
     cutoffs_list
